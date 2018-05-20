@@ -1,1 +1,3 @@
 # Hippocampus_AP_Axis
+
+All code used for the Hippocampus Anterior/Posterior gene expression analyses. Work-in-progress. Full documentation and information to come....
