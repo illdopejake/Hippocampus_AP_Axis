@@ -11,6 +11,9 @@ from scipy import stats
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler #, MinMaxScaler
 from sklearn import model_selection, linear_model
+from sklearn.ensemble import RandomForestRegressor
+import lime
+import lime.lime_tabular
 #from sklearn import mixture
 #from sklearn.metrics import roc_auc_score, roc_curve, auc, accuracy_score
 from nilearn import image, plotting
@@ -132,6 +135,35 @@ def find_closest_point_along_axis(coords,skel_coords):
         y_coord.append(skel_coords[1][gind])
 
     return y_coord, closest_coords
+
+def plot_3d_render(label_locations, data, outfl = None, r1=0, r2=30, step=1, r_init=30):
+    
+    plt.close()
+    fig = plt.figure()
+    ax = Axes3D(fig)
+    f = ax.scatter(label_locations[0], label_locations[1], label_locations[2], c = data[(label_locations)],
+              cmap='RdBu_r')
+
+    for angle in range(r1, r2, step):
+        ax.view_init(r_init, angle)
+        plt.draw()
+        plt.pause(.001)
+
+    ax.set_xlabel('\nX',fontsize=20,linespacing=4)
+    ax.set_xticks(range(120,50,-20))
+    plt.setp(ax.get_xticklabels(), fontsize=20)
+    ax.set_ylabel('\nY',fontsize=20, linespacing=2)
+    ax.set_yticks(range(90,121,10))
+    plt.setp(ax.get_yticklabels(), fontsize=20)
+    ax.set_zlabel('\n\nZ',fontsize=20, linespacing=6)
+    ax.set_zticks(range(45,76,10))
+    ax.tick_params(labelsize=20)
+    fig.colorbar(f)
+    plt.show()
+    
+    if outfl:
+        plt.savefig(outfl, bbox_inches='tight')
+
 
 def label_coordinate_by_atlas(atlas, coordinates, cube_size = 1):
     ''' This function will take a set of coordinates and an atlas and return the
@@ -257,6 +289,64 @@ def make_cube(coord, radius):
     zs = [int(x[2]) for x in s_coords]
     
     return xs, ys, zs
+
+def find_bigram(gene_df, target_id, gene_names = [], top_res=10, report = True,
+                save_bg = False, check_genes = [], check_type = 'perc', check_val = 0.95):
+    
+    if type(check_type) != type(None):
+        if check_type not in ['perc','r2']:
+            raise IOError('check_type must be set to "perc" or "r2" ')
+        else:
+            if type(check_val) != float:
+                raise ValueError('check_val must be a float between 0 and 1')
+            else:
+                if check_val < 0 or check_val > 1:
+                    raise ValueError('check_val must be a float between 0 and 1')
+    
+    bg = pandas.DataFrame(index=gene_df.index,columns=['r2'])
+    res = []
+    target = gene_df.loc[target_id].values
+    for x in gene_df.index:
+        res.append(stats.pearsonr(target,gene_df.loc[x].values)[0])
+    bg.loc[:,'r2'] = [round(x**2,4) for x in res]
+    bg.loc[:,'r'] = [round(x,4) for x in res]
+    if len(gene_names) > 0:
+        bg.loc[:,'name'] = gene_names
+    if report:
+        print(bg.sort_values('r2',ascending=False).head(top_res))
+        
+    if len(check_genes)>0:
+        if len(gene_names)==0:
+            print('no gene names provide, cannot look up genes. Sorry.')
+        else:
+            bg.sort_values('r2',inplace=True)
+            bg.loc[:,'rank'] = range(len(bg))
+            if type(check_type) == type(None):
+                for g in check_genes:
+                    print(bg[bg.name==g])
+            else:
+                for g in check_genes:
+                    report_gene = False
+                    rank = np.max(bg[bg.name==g]['rank']) 
+                    perc = rank / len(bg)
+                    if check_type == 'perc':
+                        if perc > check_val:
+                            report_gene = True
+                    else:
+                        if max(bg[bg.name==g]['r2'].values) > check_val:
+                            report_gene = True
+                    if report_gene:
+                        print(bg[bg.name==g])
+                        print('correlation greater than %s%% of other genes'%(perc))
+                        r = bg[bg['rank']==rank]['r'].values[0]
+                        plt.close()
+                        g = sns.distplot(bg.r)
+                        plt.axvline(r, color = 'r', linestyle = 'dashed')
+                        plt.show()
+                        
+    if save_bg:
+        return bg
+    
 
 ######## SCRIPTS #########
 def PCA_LR_pipeline(in_mtx, y, pca = PCA(random_state=123), 
@@ -720,3 +810,148 @@ def run_gvfcx_analysis(img, gdf, msk, vrad, vdim, gcx_col, plabs,
             res.loc[vs,'ci_u'] = ci_u
 
     return res, vectors
+
+def bootstrap_model(gene_set, all_genes, y, n_iterations=10, 
+                   bs_type='bootstrap', inner_set=100, 
+                   smallset=False, random_state = 123):
+    
+    np.random.seed(random_state)
+
+    results = []
+    for i in range(n_iterations):
+        if bs_type == 'bootstrap':
+            rand_samp = np.random.randint(0,len(gene_set.index),len(gene_set))
+            X = gene_set.loc[gene_set.index[rand_samp]].values.T
+        elif bs_type == 'null':
+            rand_samp = np.random.randint(0,len(all_genes),len(gene_set))
+            X = all_genes.loc[all_genes.index[rand_samp]].values.T
+        elif bs_type == 'inner_set':
+            rand_samp = np.random.randint(0,len(gene_set.index),inner_set)
+            X = gene_set.loc[gene_set.index[rand_samp]].values.T
+        if smallset:
+            jnk = PCA_LR_pipeline(X, y, pca=None,
+                                clf = linear_model.LassoCV(cv=10, max_iter=5000),
+                                cv_strategy='score', illustrative=False,
+                                  sanity_check_style='model')
+        else:
+            jnk = PCA_LR_pipeline(X, y, cv_strategy='score', illustrative=False, 
+                                 sanity_check_style ='model')
+        results.append(jnk['CV_scores'])
+        
+        print('>>>>finished round %s<<<<'%i)
+    
+    return results
+
+def feature_explainer_pipeline(gene_set, y, probedf, tmp_dir = None,
+                               clf = RandomForestRegressor(random_state=123,n_estimators=1000),
+                               kfold = model_selection.KFold(random_state=123, shuffle=True, n_splits=10),
+                               outdir = None, outnm = 'FeatureExplainer',
+                               ylim=(0,3.9), nm_thresh = 0.3,
+                              verbose = False):
+    
+    if not tmp_dir:
+        tmp_dir = os.path.join(os.getcwd(),'tmp')
+        if not os.path.isdir(tmp_dir):
+            os.mkdir(tmp_dir)
+
+    trial = 0
+    all_results = {}
+    names = gene_set.columns
+    
+    for tri, tei in kfold.split(gene_set):
+        print('running trial',trial)
+        train = gene_set.loc[gene_set.index[tri]]
+        test = gene_set.loc[gene_set.index[tei]]
+        labels_train = y[tri]
+        labels_test = y[tei]
+        clf.fit(train, labels_train)
+        explainer = lime.lime_tabular.LimeTabularExplainer(train.values, 
+                                                       feature_names=names.values, 
+                                                       class_names=['Position'], 
+                                                       verbose=True, mode='regression')
+        cols = ['score','pred','loc_pred']
+        results = pandas.DataFrame(index = range(len(test)), columns = cols)
+        for i in range(len(test)):
+            exp = explainer.explain_instance(test.values[i], clf.predict, num_features=len(names))
+            jnk = exp.as_list()
+            results.loc[i,'score'] = exp.score
+            results.loc[i,'pred'] = exp.predicted_value
+            results.loc[i,'loc_pred'] = exp.local_pred[0]
+            for x in range(len(names)):
+                if '>' in jnk[x][0]:
+                    splt = jnk[x][0].split(' >')
+                    if len(splt) == 2:
+                        gene = splt[0].strip()
+                    else:
+                        gene = splt[1].strip()
+                else:
+                    splt = jnk[x][0].split(' <')
+                    if len(splt) == 3:
+                        gene = splt[1].strip()
+                    else:
+                        gene = splt[0].strip()
+                scr = abs(jnk[x][1])
+                results.loc[i,gene] = scr
+            results.loc[:,'actual'] = labels_test.values
+            results.loc[:,'error'] = results.pred - results.actual
+        all_results.update({trial: results})
+        
+        outfl = os.path.join(tmp_dir, '%s_Trial%s.csv'%(outnm,trial))
+        results.to_csv(outfl)
+        trial += 1
+        print(results.head())
+    
+    plotr = assemble_FE_data(tmp_dir, gene_set)
+    
+    plot_FE_data(plotr, probedf, ylim, nm_thresh, outnm, outdir)
+    
+    return plotr
+
+def assemble_FE_data(tmp_dir, gene_set):
+    all_results = {}
+    sheetz = sorted(glob(os.path.join(tmp_dir, '*.csv')))
+    for sheet in sheetz:
+        trial = sheet.split('_trial')[-1].split('.')[0]
+        all_results.update({trial: pandas.read_csv(sheet, index_col=0)})
+    
+    holder = []
+    for i,rdf in all_results.items():
+        holder.append(rdf)
+    combined_results = pandas.concat(holder)
+    cols = combined_results.columns[:len(gene_set)]
+    plotr = pandas.DataFrame(index = range(170*len(cols)), columns = ['score','gene'])
+    flt = combined_results[cols].values.flatten()
+    plotr.loc[:,'score'] = flt
+    plotr.loc[:,'gene'] = cols.tolist()*170
+    
+    return plotr 
+
+def plot_FE_data(plotr, probedf, ylim, nm_thresh, outnm, outdir = None):
+    
+    plt.close()
+    sns.set_context('notebook')
+    sns.set_style('white')
+    plt.subplots(figsize = (14,10))
+    g = sns.barplot(x='gene',y='score',data=plotr)
+    #g.set_xticklabels([g.get_xticklabels(),rotation=90])
+    g.set_xticklabels(['' for x in range(len(g.get_xticklabels()))])
+    g.set_ylim(ylim)
+    g.set_xlabel('Gene', size=25)
+    g.set_ylabel('Contribution', size=25)
+
+    for tick in g.get_yticklabels():
+        tick.set_fontsize(20)
+    for i,gene in enumerate(cols):
+        mn = plotr[plotr.gene==gene]['score'].mean()
+        sd = plotr[plotr.gene==gene]['score'].std()
+        xval = g.patches[i].get_x()
+        ht = g.patches[i].get_height()
+        wd = g.patches[i].get_width()
+        if mn > nm_thresh:
+            print(gene,xval,i)
+            g.text(xval+wd,ht+(sd*0.25),probedf.loc[int(gene),'gene_symbol'],color='black', ha="right", fontsize=25)
+    fig = g.get_figure()
+    if outdir:
+        outfl = os.path.join(outdir, '%s_FEimg.pdf'%outnm)
+        fig.savefig(outfl, bbox_inches='tight')
+    plt.show()
