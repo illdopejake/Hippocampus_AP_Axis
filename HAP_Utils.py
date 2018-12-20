@@ -68,7 +68,7 @@ def get_gene_vector(bigdf, gene_vec = [], probe_ids = [], betas = []):
         raise IOError('please supply either a gene vector or probe IDs, but NOT BOTH!')
     #if type(clf) != type(None) and len(probe_ids) == 0:
     #   raise IOError('must pass probe_ids with clf')
-    if len(betas) == 0 and len(probe_ids==0):
+    if len(betas) > 0 and len(probe_ids)==0:
         raise IOError('please supply probe_ids along with the betas argument')
         
     if len(gene_vec) > 0:
@@ -347,6 +347,40 @@ def find_bigram(gene_df, target_id, gene_names = [], top_res=10, report = True,
     if save_bg:
         return bg
     
+
+def prepare_GO_terms(gene_set, go_sheets, probedf):
+    
+    ind = probedf.loc[gene_set.index,'gene_symbol'].unique()
+    cols = []
+    gos = []
+    for sht in go_sheets:
+        jnk = pandas.ExcelFile(sht)
+        go = pandas.ExcelFile(sht).parse(jnk.sheet_names[0])
+        gos.append(go)
+        cols += go.Description.tolist()
+    
+    go_gsea = pandas.DataFrame(np.zeros((len(ind),len(cols))), index=ind, columns = cols) 
+    
+    for go in gos:
+        for i,row in go.iterrows():
+            jnk = row['Genes']
+            jnk = jnk.replace('[','')
+            jnk = jnk.replace(']','')
+            genes = [x for x in jnk.split(' ') if x.isupper()]
+            try:
+                go_gsea.loc[genes,row['Description']] = 1
+            except:
+                misses = [genes.pop(genes.index(x)) for x in genes if x not in go_gsea.index]
+                go_gsea.loc[genes,row['Description']] = 1
+                for gene in misses:
+                    go_gsea.loc[gene,row['Description']] = 1
+
+    go_gsea.fillna(0,inplace=True)
+    
+    # Drop genes with 0 hits
+    go_gsea.drop([x for x in go_gsea.index if all(go_gsea.loc[x].values == 0)],inplace=True)
+    
+    return go_gsea
 
 ######## SCRIPTS #########
 def PCA_LR_pipeline(in_mtx, y, pca = PCA(random_state=123), 
@@ -901,9 +935,9 @@ def feature_explainer_pipeline(gene_set, y, probedf, tmp_dir = None,
         trial += 1
         print(results.head())
     
-    plotr = assemble_FE_data(tmp_dir, gene_set)
+    plotr, cols = assemble_FE_data(tmp_dir, gene_set)
     
-    plot_FE_data(plotr, probedf, ylim, nm_thresh, outnm, outdir)
+    plot_FE_data(plotr, cols, probedf, ylim, nm_thresh, outnm, outdir)
     
     return plotr
 
@@ -912,7 +946,8 @@ def assemble_FE_data(tmp_dir, gene_set):
     sheetz = sorted(glob(os.path.join(tmp_dir, '*.csv')))
     for sheet in sheetz:
         trial = sheet.split('_trial')[-1].split('.')[0]
-        all_results.update({trial: pandas.read_csv(sheet, index_col=0)})
+        jnk = pandas.read_csv(sheet, index_col=0)
+        all_results.update({trial: jnk[jnk.columns[3:-2]]})
     
     holder = []
     for i,rdf in all_results.items():
@@ -924,9 +959,9 @@ def assemble_FE_data(tmp_dir, gene_set):
     plotr.loc[:,'score'] = flt
     plotr.loc[:,'gene'] = cols.tolist()*170
     
-    return plotr 
+    return plotr, cols
 
-def plot_FE_data(plotr, probedf, ylim, nm_thresh, outnm, outdir = None):
+def plot_FE_data(plotr, cols, probedf, ylim, nm_thresh, outnm, outdir = None):
     
     plt.close()
     sns.set_context('notebook')
@@ -955,3 +990,54 @@ def plot_FE_data(plotr, probedf, ylim, nm_thresh, outnm, outdir = None):
         outfl = os.path.join(outdir, '%s_FEimg.pdf'%outnm)
         fig.savefig(outfl, bbox_inches='tight')
     plt.show()
+
+def structural_connectivity_analysis(input_img, df, col, ant_cut, post_cut, vdim, 
+                                     mask_thr=0.2, outdir = None, outname='strucx'):
+    
+    print('initializing')
+    i4d = input_img.get_data()
+    avg_image = i4d.mean(3)
+    mask = np.zeros_like(avg_image)
+    mask[avg_image>mask_thr] = 1
+    mskr = input_data.NiftiMasker(ni.Nifti1Image(mask,input_img.affine))
+    i2d = mskr.fit_transform(input_img)
+    
+    print('creating anterior connectivity map')
+    antdf = df[df[col]>=ant_cut][['mni_nlin_x','mni_nlin_y','mni_nlin_z']]
+    ant_mtx = get_structural_connectivity(antdf, i4d, i2d, vdim)
+    ant_image = mskr.inverse_transform(ant_mtx).get_data().mean(3)
+    
+    print('creating posterior connectivity map')
+    postdf = df[df[col]<=post_cut][['mni_nlin_x','mni_nlin_y','mni_nlin_z']]
+    post_mtx = get_structural_connectivity(postdf, i4d, i2d, vdim)
+    post_image = mskr.inverse_transform(post_mtx).get_data().mean(3)
+    
+    diff_image = ni.Nifti1Image((ant_image - post_image), input_img.affine)
+    ant_image = ni.Nifti1Image(ant_image,input_img.affine)
+    post_image = ni.Nifti1Image(post_image,input_img.affine)
+    output = {'anterior': ant_image,
+             'posterior': post_image,
+             'difference': diff_image}
+
+    if outdir:
+        for lab, image in output.items():
+            image.to_filename(os.path.join(wdir,'%s_%s'%(outname,lab)))
+    
+    return output
+        
+def get_structural_connectivity(cdf, i4d, i2d, vdim, embedded=True):
+    
+    rmat = np.zeros((len(cdf),i2d.shape[1]))
+    for i,c in enumerate(cdf.index):
+        coord = [int(round(x)) for x in convert_coords(cdf.loc[c].values, 'xyz', vdim)]
+        print('computing %s of %s connectivity maps'%(i+1,len(cdf)))
+        cvec = i4d[coord[0],coord[1],coord[2],:]
+        rs = [stats.pearsonr(cvec,i2d[:,x])[0] for x in range(i2d.shape[1])]
+        rmat[i,:] = rs
+    if embedded:
+        rvec = rmat.mean(0)
+        r_mtx = np.repeat(np.array(rvec)[:, np.newaxis], i2d.shape[0], axis=1).T
+
+        return r_mtx
+    else:
+        return rmat
