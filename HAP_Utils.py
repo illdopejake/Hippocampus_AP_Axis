@@ -1041,3 +1041,243 @@ def get_structural_connectivity(cdf, i4d, i2d, vdim, embedded=True):
         return r_mtx
     else:
         return rmat
+
+def cognitive_metaanalysis_pipeline(scans=None, gdf = None, target_col = None, 
+                                    metares = None, labels = None,
+                                    min_samples = 400, figtype = 'horizontal', 
+                                    return_scans = False, savefig = '',
+                                   ATLabs = ['T65','T60','T17','T20','T90'],
+                                   PMLabs = ['T56','T24','T40','T14','T75']):
+
+    '''
+    Depending on inputs, this script will load neurosynth LDA topic maps, find 
+    overlap samples and maps, calculate the average HAGS (or whatever) of 
+    samples that overlap with the map, and plot a figure summarizing.
+
+    scans = If passing metares, scans can be left as None. Otherwise, either a
+    list of paths pointing to neurosynth LDA images, or a 4D array representing
+    all of these images.
+
+    gdf = If passing metares, gdf cane be left as None. Otherwise, a spreadsheet
+    having one row for each brain sample and (at least) columns indicating 
+    sample coordinates, along with target_col.
+
+    target_col = If passing metares, gdf cane be left as None. Otherwise, a 
+    string label corresponding to the column in gdf where HAGS or whatever
+    sample-wise value you would like to analyze is.
+
+    metares = If None, you must pass scans, gdf, target_col and labels 
+    instead. Otherwise, this should be a samples X maps array, such that
+    each cell has a value corresponding to the sample's target value (e.g. HAGS) 
+    for map that the sample overlaps with, and an NaN for each map it does not 
+    overlap with.
+
+    labels = If passing metares, gdf cane be left as None. Otherwise, a list of 
+    string labels the same length as scans (or the the 4th dimension of scans)
+    indicating the label of each topic map.
+    
+    min_samples = A threshold indiciating the minimum number of samples
+    overlapping with a map that is sufficient to analzye that map. A map
+    overlapping with few samples will likely be biased.
+
+    fig_type = What kind of figure to produce:
+    * 'horizontal' = Topic x Value
+    * 'vertical' = Value x Topic
+    * None = Do not generate a figure at all.
+
+    return_scans = if you passed a list of scans, this will return the 4D data
+    corresponding to those scans. Note, this can be a very large array.
+
+    savefig = A path where you would like to save the figure created in this
+    script. Note that the path should include the desired figure extension
+    (e.g. .pdf, .png, etc). If None, no figure will be save.
+
+    ATLabs / PMLabs = A string containing topic labels for topics you wish to
+    label as AT or PM in the figure.  
+    '''
+    
+    data_passed = False
+    
+    if type(scans) == type(None) and type(metares) == type(None):
+        raise IOError('a value must be passed for scans or metares')
+    
+    if type(scans) != type(None) and type(metares) != type(None):
+        raise IOError('a value must be passed for scans *or* metares')
+    
+    if type(metares) == type(None) and any([type(x)==type(None) for x in [gdf, target_col, labels]]):
+        raise IOError('if not passing metares, you must pass a value for gdf, target_col and labels')
+    
+    if type(metares) == type(None):
+        data_passed = True
+        if type(scans) == list:
+            if not os.path.isfile(scans[0]):
+                raise IOError('Assuming you passed a list of scan paths, but I couldnt locate the first one...')
+            else:
+                print('>>>loading data<<<')
+                allmetas = image.load_img(scans).get_data()
+        else:
+            if type(scans) != np.ndarray:
+                raise IOError('scans must be 4D array or list of paths to neurosynth maps')
+            elif len(scans) < 4:
+                raise IOError('scans must be a 4D array, but you passed an array with %s dimensions'%len(scans))
+            else:
+                allmetas = scans
+        
+        print('>>>computing overlap of each sample with each map<<<')
+        metares_a = compute_sample_overlap(gdf, target_col, allmetas, labels)
+        
+        map_sizes = []
+        for i in range(allmetas.shape[-1]):
+            jnk = allmetas[:,:,:,i]
+            map_sizes.append(len(jnk[jnk>0]))
+        # calculate the number of samples found within each map
+            
+        if not return_scans:
+            del(allmetas)
+    else:
+        metares_a = metares
+        map_sizes = None
+    
+    map_hits = []
+    for col in metares_a.columns:
+        jnk = metares_a[col]
+        map_hits.append(len([x for x in jnk.values if pandas.notnull(x)]))
+
+    print('>>>Calculating stuff<<<')
+    res_sum, metaresb = compute_results_summary(metares_a, map_sizes, map_hits)
+
+    # parse topic number and add system to relevant topics
+    for top in res_sum.index:
+        tnum = top.split('_')[0]
+        if tnum in ATLabs:
+            res_sum.loc[top,'system'] = 'AT'
+        elif tnum in PMLabs:
+            res_sum.loc[top,'system'] = 'PM'
+    res_sum2 = res_sum.loc[metaresb.columns]
+    
+    # removing maps without enough data
+    print('>>>removing data with less than %s samples overlapping'%min_samples)
+    goodlabs = res_sum[res_sum.map_hits>min_samples].index
+    len(goodlabs)
+    metares400 = metares_a[goodlabs]
+    metares400 = metares400[metares400.mean().sort_values().index]
+    res_sum4 = res_sum.loc[metares400.columns]
+    print('%s maps remaining'%len(res_sum4))
+    
+    # plotting
+    if figtype != None:
+        print('>>>plotting<<<')
+        create_metacog_plot(metares400, res_sum4, figtype, savefig)
+    
+    # preparing results
+    all_results = {'res_sum': res_sum4,
+              'metares_a': metares_a,
+              'metares400': metares400}
+    if data_passed:
+        if return_scans:
+            all_results.update({'allmetas': allmetas})
+    
+    return all_results 
+    
+    
+def compute_sample_overlap(gdf, col, allmetas, labels):
+
+    metares_a = pandas.DataFrame(index=gdf.index,columns = labels)
+    # for each coordinate
+    for i,row in gdf.iterrows():
+        # draw a 5mm cube around the coordinate
+        xs,ys,zs = make_sphere(convert_coords([row['mni_nlin_x'],row['mni_nlin_y'],row['mni_nlin_z']],'xyz'), 3)
+        # for each image
+        for img in range(allmetas.shape[-1]):
+            # if there is any data inside the cube (i.e. if the sample falls within the map)
+            if allmetas[xs,ys,zs,img].mean() > 0:
+                # add data for this sample to spreadsheet (i.e. mark this sample as within the map)
+                metares_a.loc[i,labels[img]] = row[col]
+        if i%100 == 0:
+            print('finished %s of %s'%(i,len(gdf)))
+
+    return metares_a
+
+def compute_results_summary(metares_a, map_sizes, map_hits):
+
+    # create a spreadsheet summarizing all of the relevant information
+
+    # create spreadsheet
+    res_sum = pandas.DataFrame(index = metares_a.columns)
+    res_sum.loc[:,'mean'] = metares_a.mean().values # average HAGS index of samples within map
+    res_sum.loc[:,'sem'] = metares_a.sem().values # SEM of HAGS index of samples within map
+    if map_sizes:
+        res_sum.loc[:,'map_size'] = map_sizes # size (in voxels) of each map
+    res_sum.loc[:,'map_hits'] = map_hits # number of samples falling within each map
+
+    # Just in case someone asks for it, create a new mean weighted by number of samples in each map
+    cols = ['mean','sem']
+    for col in cols:
+        wtd = (res_sum[col].values * res_sum.map_hits.values
+              ) / (res_sum[col].values + res_sum.map_hits.values)
+        res_sum.loc[:,'wtd_%s'%col] = wtd
+
+    # How many (of the 100 maps) actually overlap with some samples?
+    goodlabs = metares_a.mean().dropna().index
+    print('%s maps did not overlap with any samples'%len(goodlabs))
+
+    # Get rid of those that don't and sort data
+    metaresb = metares_a[goodlabs]
+    metaresb = metaresb[metaresb.mean().sort_values().index]
+    
+    return res_sum, metaresb
+
+def create_metacog_plot(metares400, res_sum4, figtype, savefig):
+
+    sns.set_context('notebook',font_scale=2)
+
+    # get mean and SEM data
+    means = (metares400.mean()).tolist()
+    stds = metares400.sem().tolist()
+    cis = [((means[x]-stds[x]),(means[x]+stds[x])) for x in range(len(means))]
+
+    # get labels
+    xlabs = ['%s: %s / %s'%(x.split('_')[0],
+                    x.split('_')[1],
+                    x.split('_')[2]) for x in metares400.mean().dropna().index.tolist()]
+
+    # get the range of the confidence interval
+    y_r = [((cis[i][0] - means[i]) + (means[i] - cis[i][1]))/2 for i in range(len(cis))]
+
+    # color code AT and PM bars
+    colors = ['red' if res_sum4.loc[x,'system'] == 'AT' else 'blue' if res_sum4.loc[x,'system'] == 'PM' else 'gray' for x in metares400.columns]
+
+    # Make a barplot
+    if figtype == 'horizontal':
+        plt.close()
+        sns.set_style('white')
+        fig, ax = plt.subplots(figsize=(16,6))
+        fig = plt.bar(range(len(means)), means, yerr=y_r, alpha=0.5, align='center', color = colors,
+                     )
+        ax.set_xticks(range(len(means)))
+        ax.set_xticklabels(xlabs, rotation=90)
+        ax.set_ylabel('HAGS Index')
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                     ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(12)
+    
+    elif figtype == 'vertical':
+        plt.close()
+        sns.set_style('white')
+        fig, ax = plt.subplots(figsize=(6,16))
+        fig = plt.barh(range(len(means)), means, xerr=y_r, alpha=0.5, align='center', color = colors,
+                     )
+        ax.set_yticks(range(len(means)))
+        ax.set_yticklabels(metares400.mean().dropna().index.tolist())
+        ax.set_xlabel('A-P Axis Genomic Similarity\n(Anterior high)')
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                     ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(12) 
+    else:
+        raise IOError('figtype must be set to "horizontal" or "vertical"')
+    
+    if savefig:
+        plt.savefig(savefig)
+    
+    plt.show()
+    
