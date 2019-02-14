@@ -1044,7 +1044,7 @@ def get_structural_connectivity(cdf, i4d, i2d, vdim, embedded=True):
 
 def cognitive_metaanalysis_pipeline(scans=None, gdf = None, target_col = None, 
                                     metares = None, labels = None,
-                                    min_samples = 400, figtype = 'horizontal', 
+                                    min_samples = 500, figtype = 'horizontal', 
                                     return_scans = False, savefig = '',
                                    ATLabs = ['T65','T60','T17','T20','T90'],
                                    PMLabs = ['T56','T24','T40','T14','T75']):
@@ -1172,7 +1172,7 @@ def cognitive_metaanalysis_pipeline(scans=None, gdf = None, target_col = None,
     # preparing results
     all_results = {'res_sum': res_sum4,
               'metares_a': metares_a,
-              'metares400': metares400}
+              'metares%s'%min_samples: metares400}
     if data_passed:
         if return_scans:
             all_results.update({'allmetas': allmetas})
@@ -1186,7 +1186,7 @@ def compute_sample_overlap(gdf, col, allmetas, labels):
     # for each coordinate
     for i,row in gdf.iterrows():
         # draw a 5mm cube around the coordinate
-        xs,ys,zs = make_sphere(convert_coords([row['mni_nlin_x'],row['mni_nlin_y'],row['mni_nlin_z']],'xyz'), 3)
+        xs,ys,zs = make_sphere(convert_coords([row['mni_nlin_x'],row['mni_nlin_y'],row['mni_nlin_z']],'xyz',2), 3)
         # for each image
         for img in range(allmetas.shape[-1]):
             # if there is any data inside the cube (i.e. if the sample falls within the map)
