@@ -1186,7 +1186,7 @@ def compute_sample_overlap(gdf, col, allmetas, labels):
     # for each coordinate
     for i,row in gdf.iterrows():
         # draw a 5mm cube around the coordinate
-        xs,ys,zs = make_sphere(convert_coords([row['mni_nlin_x'],row['mni_nlin_y'],row['mni_nlin_z']],'xyz',2), 3)
+        xs,ys,zs = make_sphere(convert_coords([row['mni_nlin_x'],row['mni_nlin_y'],row['mni_nlin_z']],'xyz',2), 2)
         # for each image
         for img in range(allmetas.shape[-1]):
             # if there is any data inside the cube (i.e. if the sample falls within the map)
