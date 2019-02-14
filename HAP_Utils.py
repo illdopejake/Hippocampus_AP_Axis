@@ -1072,9 +1072,9 @@ def cognitive_metaanalysis_pipeline(scans=None, gdf = None, target_col = None,
     for map that the sample overlaps with, and an NaN for each map it does not 
     overlap with.
 
-    labels = If passing metares, gdf cane be left as None. Otherwise, a list of 
-    string labels the same length as scans (or the the 4th dimension of scans)
-    indicating the label of each topic map.
+    labels = If passing metares, labels can be left as None. Otherwise, a list 
+    of string labels the same length as scans (or the the 4th dimension of 
+    scans) indicating the label of each topic map.
     
     min_samples = A threshold indiciating the minimum number of samples
     overlapping with a map that is sufficient to analzye that map. A map
@@ -1277,7 +1277,7 @@ def create_metacog_plot(metares400, res_sum4, figtype, savefig):
         raise IOError('figtype must be set to "horizontal" or "vertical"')
     
     if savefig:
-        plt.savefig(savefig)
+        plt.savefig(savefig, bbox_inches='tight')
     
     plt.show()
     
