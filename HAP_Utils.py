@@ -159,10 +159,11 @@ def plot_3d_render(label_locations, data, outfl = None, r1=0, r2=30, step=1, r_i
     ax.set_zticks(range(45,76,10))
     ax.tick_params(labelsize=20)
     fig.colorbar(f)
-    plt.show()
-    
     if outfl:
         plt.savefig(outfl, bbox_inches='tight')
+    plt.show()
+    
+   
 
 
 def label_coordinate_by_atlas(atlas, coordinates, cube_size = 1):
