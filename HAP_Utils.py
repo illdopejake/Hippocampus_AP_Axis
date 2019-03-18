@@ -682,7 +682,7 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
                                    del_img = True, diff_img = True,  vrad = 5, vdim = 1,
                                   in_imgs = [], bootstrap = False, n_iter = 100,
                                    hue_vals=[], return_results=False, return_vectors = False,
-                                   illustrative=True):
+                                   illustrative=True, save_dir = None, tspace = None):
     
     if len(in_imgs) == 0:
         a_idx = df.loc[[x for x in df.index if df.loc[x,ycol] < ant_cut]].index
@@ -690,13 +690,17 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
         print('%s maps used for posterior, %s used for anterior'%(len(p_idx),len(a_idx)))
         print('\n')
         print('processing anterior image')
-        aimg = make_mean_img(df.loc[a_idx,ccol].tolist(),wdir,del_img, 'ant')
+        #aimg = make_mean_img(df.loc[a_idx,ccol].tolist(),wdir,del_img, 'ant')
+        aimg = make_mean_img(df.loc[a_idx,ccol].tolist(),tspace)
         print('processing posterior image')
-        pimg = make_mean_img(df.loc[p_idx,ccol].tolist(),wdir,del_img,'post')
+        pimg = make_mean_img(df.loc[p_idx,ccol].tolist(),tspace)
+
+        imgs = {'post': pimg, 'ant': aimg}
     
         if diff_img:
             print('running analysis')
             diff_img = pimg - aimg
+            imgs.update({'diff': diff_img})
             res, vectors = run_gvfcx_analysis(diff_img, gdf, msk, vrad, vdim, gcx_col, plabs, 
                                      bootstrap, n_iter, hue_vals, illustrative)
         else:
@@ -706,6 +710,12 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
             print('running anterior analysis')
             res, vectors = run_gvfcx_analysis(aimg, gdf, msk, vrad, vdim, gcx_col, plabs, 
                                      bootstrap, n_iter, hue_vals, illustrative)
+        if os.path.isdir(save_dir):
+        	print('saving images')
+        	for label, img in imgs.items():
+        		tosave = ni.Nifti1Image(img,ni.load(tspace).affine)
+        		tosave.to_filename(os.path.join(save_dir,'cnx_%s_img'%(label)))
+
     else:
         if diff_img:
             diff_img = ni.load(in_imgs[1]).get_data() - ni.load(in_imgs[0]).get_data()
@@ -725,29 +735,32 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
     elif return_vectors and not return_results:
         return vectors
     
-def make_mean_img(scans, wdir, del_img, lab):
+# def make_mean_img(scans, wdir, del_img, lab, tspace)
+def make_mean_img(scans, tspace):
     
     print('making mean image')
     img = ni.concat_images(scans)
     x,y,z,q,t = img.shape
     mat = img.get_data().reshape(x,y,z,t)
     mimg = ni.Nifti1Image(mat.mean(axis=3),img.affine)
-    fnm = os.path.join(wdir,'del_%s_img.nii'%lab)
-    mimg.to_filename(fnm)
+    print('resampling')
+    fimg = image.resample_to_img(mimg, tspace).get_data()
+    # fnm = os.path.join(wdir,'del_%s_img.nii'%lab)
+    # mimg.to_filename(fnm)
     
-    print('moving to template space')
-    #mni = '/Users/jakevogel/Science/tau/MNI152_T1_1mm_brain.nii'
-    mni = '/home/users/jvogel/Science/templates/templates/MNI152_T1_1mm_brain.nii'
-    #tfm = '/Users/jakevogel/Science/AHBA/cx_maps/2_to_1_mm_tfm'
-    tfm = '/home/users/jvogel/Science/templates/tfms/2_to_1mm_MNI.tfm'
-    nfnm = os.path.join(wdir,'%s_img.nii'%lab)
-    #os.system('flirt -in %s -ref %s -applyxfm -init %s -out %s'%(fnm,mni,tfm,nfnm))
-    os.system('fsl5.0-flirt -in %s -ref %s -applyxfm -init %s -out %s'%(fnm,mni,tfm,nfnm))
-    os.remove(fnm)
-    nfnm = nfnm+'.gz'
-    fimg = ni.load(nfnm).get_data()
-    if del_img:
-        os.remove(nfnm)
+    # print('moving to template space')
+    # #mni = '/Users/jakevogel/Science/tau/MNI152_T1_1mm_brain.nii'
+    # mni = '/home/users/jvogel/Science/templates/templates/MNI152_T1_1mm_brain.nii'
+    # #tfm = '/Users/jakevogel/Science/AHBA/cx_maps/2_to_1_mm_tfm'
+    # tfm = '/home/users/jvogel/Science/templates/tfms/2_to_1mm_MNI.tfm'
+    # nfnm = os.path.join(wdir,'%s_img.nii'%lab)
+    # #os.system('flirt -in %s -ref %s -applyxfm -init %s -out %s'%(fnm,mni,tfm,nfnm))
+    # os.system('fsl5.0-flirt -in %s -ref %s -applyxfm -init %s -out %s'%(fnm,mni,tfm,nfnm))
+    # os.remove(fnm)
+    # nfnm = nfnm+'.gz'
+    # fimg = ni.load(nfnm).get_data()
+    # if del_img:
+    #     os.remove(nfnm)
     
     return fimg
 
@@ -768,7 +781,8 @@ def run_gvfcx_analysis(img, gdf, msk, vrad, vdim, gcx_col, plabs,
             coord = convert_coords([row['mni_nlin_x'], row['mni_nlin_y'], row['mni_nlin_z']], 
                                    'xyz', vdim)
             coord = [round(x) for x in coord]
-            if msk[coord[0],coord[1],coord[2]] != 0:
+            #if msk[coord[0],coord[1],coord[2]] != 0:
+            if msk[coord[0],coord[1],coord[2]] > 0:
                 xs,ys,zs = make_sphere(coord, vs)
                 val = img[xs,ys,zs]
                 f_cx.append(val.mean())
