@@ -16,12 +16,13 @@ import lime
 import lime.lime_tabular
 #from sklearn import mixture
 #from sklearn.metrics import roc_auc_score, roc_curve, auc, accuracy_score
-from nilearn import image, plotting
+#from nilearn import image, plotting
+from nilearn import image
 #from sklearn.neighbors import kneighbors_graph
 #from sklearn.metrics import calinski_harabaz_score
 #from sklearn.metrics import silhouette_score
 #from sklearn.cluster import AgglomerativeClustering
-from mpl_toolkits.mplot3d import Axes3D
+#from mpl_toolkits.mplot3d import Axes3D
 
 
 
@@ -361,15 +362,41 @@ def prepare_GO_terms(gene_set, go_sheets, probedf):
         go = pandas.ExcelFile(sht).parse(jnk.sheet_names[0])
         gos.append(go)
         cols += go.Description.tolist()
-    
+
     go_gsea = pandas.DataFrame(np.zeros((len(ind),len(cols))), index=ind, columns = cols) 
-    
+
+    #### quick test ###
+    go = gos[0]
+    i = 0
+    row = go.loc[0]
+    row['Genes']
+    jnk = row['Genes']
+    jnk = jnk.replace('[','')
+    jnk = jnk.replace(']','')
+    genes = [x for x in jnk.split(' ') if x.isupper()]
+    if len(genes) == 1:
+        version = 'New'
+    elif len(genes) == 0:
+        version = 'Fail'
+    else:
+        version = 'Old'
+        
+    if version == 'Fail':
+        raise IOError('Script did not finding any genes in first row. Something is wrong...')
+    ###################
+        
     for go in gos:
         for i,row in go.iterrows():
-            jnk = row['Genes']
-            jnk = jnk.replace('[','')
-            jnk = jnk.replace(']','')
-            genes = [x for x in jnk.split(' ') if x.isupper()]
+            if version == 'Old':
+                jnk = row['Genes']
+                jnk = jnk.replace('[','')
+                jnk = jnk.replace(']','')
+                genes = [x for x in jnk.split(' ') if x.isupper()]
+            else:
+                jnk = row['Genes':].dropna().tolist()
+                jnk = [x.replace('[','').replace('[','').split(' - ')[0].strip() for x in jnk]
+                genes = [x for x in jnk if x.isupper()]
+                
             try:
                 go_gsea.loc[genes,row['Description']] = 1
             except:
@@ -379,10 +406,10 @@ def prepare_GO_terms(gene_set, go_sheets, probedf):
                     go_gsea.loc[gene,row['Description']] = 1
 
     go_gsea.fillna(0,inplace=True)
-    
+
     # Drop genes with 0 hits
     go_gsea.drop([x for x in go_gsea.index if all(go_gsea.loc[x].values == 0)],inplace=True)
-    
+
     return go_gsea
 
 ######## SCRIPTS #########
@@ -684,7 +711,8 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
                                    del_img = True, diff_img = True,  vrad = 5, vdim = 1,
                                   in_imgs = [], bootstrap = False, n_iter = 100,
                                    hue_vals=[], return_results=False, return_vectors = False,
-                                   illustrative=True, save_dir = None, tspace = None):
+                                   illustrative=True, save_dir = None, tspace = None,
+                                   joint_input = ''):
     
     if len(in_imgs) == 0:
         a_idx = df.loc[[x for x in df.index if df.loc[x,ycol] < ant_cut]].index
@@ -704,14 +732,14 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
             diff_img = pimg - aimg
             imgs.update({'diff': diff_img})
             res, vectors = run_gvfcx_analysis(diff_img, gdf, msk, vrad, vdim, gcx_col, plabs, 
-                                     bootstrap, n_iter, hue_vals, illustrative)
+                                     bootstrap, n_iter, hue_vals, illustrative, joint_input)
         else:
             print('running posterior analysis')
             res, vectors = run_gvfcx_analysis(pimg, gdf, msk, vrad, vdim, gcx_col,  plabs, 
-                                     bootstrap, n_iter, hue_vals, illustrative)
+                                     bootstrap, n_iter, hue_vals, illustrative, joint_input)
             print('running anterior analysis')
             res, vectors = run_gvfcx_analysis(aimg, gdf, msk, vrad, vdim, gcx_col, plabs, 
-                                     bootstrap, n_iter, hue_vals, illustrative)
+                                     bootstrap, n_iter, hue_vals, illustrative, joint_input)
         if os.path.isdir(save_dir):
         	print('saving images')
         	for label, img in imgs.items():
@@ -722,13 +750,13 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
         if diff_img:
             diff_img = ni.load(in_imgs[1]).get_data() - ni.load(in_imgs[0]).get_data()
             res, vectors = run_gvfcx_analysis(diff_img, gdf, msk, vrad, vdim, gcx_col, plabs, 
-                                     bootstrap, n_iter, hue_vals, illustrative)
+                                     bootstrap, n_iter, hue_vals, illustrative, joint_input)
         else:
             for img in in_imgs:
                 print('running analysis for image',img)
                 dat = ni.load(img).get_data()
                 res, vectors = run_gvfcx_analysis(dat, gdf, msk, vrad, vdim, gcx_col, plabs, 
-                                         bootstrap, hue_vals, illustrative)
+                                         bootstrap, hue_vals, illustrative, joint_input)
     
     if return_results and return_vectors:
         return res, vectors
@@ -767,7 +795,8 @@ def make_mean_img(scans, tspace):
     return fimg
 
 def run_gvfcx_analysis(img, gdf, msk, vrad, vdim, gcx_col, plabs,
-                       bootstrap, n_iter, hue_vals, illustrative):
+                       bootstrap, n_iter, hue_vals, illustrative,
+                       joint_input):
     
     if type(vrad) != list:
         vrad = [vrad]
@@ -795,10 +824,17 @@ def run_gvfcx_analysis(img, gdf, msk, vrad, vdim, gcx_col, plabs,
         if len(hue_vals) == 0:
             if illustrative:
                 plt.close()
-                sns.regplot(np.array(g_cx), np.array(f_cx))
-                plt.title(plabs[0])
-                plt.xlabel(plabs[1])
-                plt.ylabel(plabs[2])
+                if joint_input:
+                    indata = pandas.concat([pandas.Series(g_cx),
+                                            pandas.Series(f_cx)
+                                            ], axis=1)
+                    indata.columns = [plabs[1],plabs[2]]
+                    sns.jointplot(x=plabs[1], y = plabs[2], data=indata, kind=joint_input)
+                else:
+                    sns.regplot(np.array(g_cx), np.array(f_cx))
+                    plt.title(plabs[0])
+                    plt.xlabel(plabs[1])
+                    plt.ylabel(plabs[2])
                 plt.show()
         else:
             if illustrative:
