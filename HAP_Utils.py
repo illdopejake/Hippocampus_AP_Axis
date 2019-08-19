@@ -5,7 +5,7 @@ import numpy as np
 import nibabel as ni
 import matplotlib.pyplot as plt
 import seaborn as sns
-#import statsmodels.formula.api as smf
+import statsmodels.formula.api as smf
 from glob import glob
 from scipy import stats
 from sklearn.decomposition import PCA
@@ -16,13 +16,13 @@ import lime
 import lime.lime_tabular
 #from sklearn import mixture
 #from sklearn.metrics import roc_auc_score, roc_curve, auc, accuracy_score
-#from nilearn import image, plotting
-from nilearn import image
+from nilearn import image, plotting
+#from nilearn import image
 #from sklearn.neighbors import kneighbors_graph
 #from sklearn.metrics import calinski_harabaz_score
 #from sklearn.metrics import silhouette_score
 #from sklearn.cluster import AgglomerativeClustering
-#from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import Axes3D
 
 
 
