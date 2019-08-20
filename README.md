@@ -26,7 +26,7 @@ N6_HAGGIS.ipynb --> Analyses presented in and relating to Figure 4
 
 N7_Correlations_with_Imaging.ipynb --> Analyses presented in and relating to Figures 5, S6, S7, S9 and Table S6
 
-N5_Cognition_metaanalysis.ipynb --> Analyses presented in and relating to Figures 6, S8
+N8_Cognition_metaanalysis.ipynb --> Analyses presented in and relating to Figures 6, S8
 
 ### Requirements
 
