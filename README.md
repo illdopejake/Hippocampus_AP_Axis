@@ -22,7 +22,7 @@ N4_CellType_Analyses.ipynb --> Analyses presented in and relating to Figure S5 a
 
 N5_BrainSpan_Replication.ipynb --> Analyses presented in and relating to Figure 3
 
-N6_HAGGIS.ipynb --> Analyses presented in and relating to Figure 4
+N6_HAGGIS.ipynb --> Analyses presented in and relating to Figures 4, S11
 
 N7_Correlations_with_Imaging.ipynb --> Analyses presented in and relating to Figures 5, S6, S7, S9 and Table S6
 
