@@ -1,5 +1,8 @@
 # Hippocampus_AP_Axis
 
+[![DOI](https://zenodo.org/badge/134175281.svg)](https://zenodo.org/badge/latestdoi/134175281)
+
+
 ### Description
 All code used for the Hippocampus Anterior/Posterior gene expression and neuroimaging analyses from the paper: https://www.biorxiv.org/content/10.1101/587071v1. 
 
