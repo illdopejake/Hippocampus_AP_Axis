@@ -4,9 +4,9 @@
 
 
 ### Description
-All code used for the Hippocampus Anterior/Posterior gene expression and neuroimaging analyses from the paper: https://www.biorxiv.org/content/10.1101/587071v1. 
+All code used for the Hippocampus Anterior/Posterior gene expression and neuroimaging analyses from the paper: https://rdcu.be/b1UlW. 
 
-Preprint doi: https://doi.org/10.1101/587071
+Doi: https://doi.org/10.1038/s41467-020-14518-3
 
 
 Included are several Jupyter notebooks running through each of the analyses in the paper, showing the exact code and data used to prepare and run each analysis and sub-analysis, and generate the figures from the manuscript. The repository also includes a library containing functions built specifically for these analyses, and links and instructions for accessing data.
