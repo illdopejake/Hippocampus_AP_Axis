@@ -12,8 +12,8 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler #, MinMaxScaler
 from sklearn import model_selection, linear_model
 from sklearn.ensemble import RandomForestRegressor
-import lime
-import lime.lime_tabular
+#import lime
+#import lime.lime_tabular
 #from sklearn import mixture
 #from sklearn.metrics import roc_auc_score, roc_curve, auc, accuracy_score
 from nilearn import image, plotting
@@ -103,11 +103,11 @@ def make_expression_image(vector, coords, projection_space,
     if type(projection_space) == str:
         jnk = ni.load(projection_space)
         aff = jnk.affine
-        dat = jnk.get_data()
+        dat = jnk.get_fdata()
     else:
         try:
             aff = projection_space.affine
-            dat = projection_space.get_data()
+            dat = projection_space.get_fdata()
         except:
             raise IOError('projection_space must be a NiftiImage object or path to .nii file')
     nimg = np.zeros_like(dat).astype(float)
@@ -218,9 +218,9 @@ def label_coordinate_by_atlas(atlas, coordinates, cube_size = 1):
 def init_and_chk_inputs(atlas,coordinates):
     print('checking and initializing inputs')
     if type(atlas) == str:
-        atl = ni.load(atlas).get_data()
+        atl = ni.load(atlas).get_fdata()
     elif type(atlas) == ni.nifti1.Nifti1Image: 
-        atl = atlas.get_data()
+        atl = atlas.get_fdata()
     elif type(atlas) == np.core.memmap.memmap or type(atlas) == np.ndarray:
         atl = atlas
     else:
@@ -748,13 +748,13 @@ def run_hipp_connectivity_analysis(ant_cut, post_cut, df, ycol,
 
     else:
         if diff_img:
-            diff_img = ni.load(in_imgs[1]).get_data() - ni.load(in_imgs[0]).get_data()
+            diff_img = ni.load(in_imgs[1]).get_fdata() - ni.load(in_imgs[0]).get_fdata()
             res, vectors = run_gvfcx_analysis(diff_img, gdf, msk, vrad, vdim, gcx_col, plabs, 
                                      bootstrap, n_iter, hue_vals, illustrative, joint_input)
         else:
             for img in in_imgs:
                 print('running analysis for image',img)
-                dat = ni.load(img).get_data()
+                dat = ni.load(img).get_fdata()
                 res, vectors = run_gvfcx_analysis(dat, gdf, msk, vrad, vdim, gcx_col, plabs, 
                                          bootstrap, hue_vals, illustrative, joint_input)
     
@@ -771,10 +771,10 @@ def make_mean_img(scans, tspace):
     print('making mean image')
     img = ni.concat_images(scans)
     x,y,z,q,t = img.shape
-    mat = img.get_data().reshape(x,y,z,t)
+    mat = img.get_fdata().reshape(x,y,z,t)
     mimg = ni.Nifti1Image(mat.mean(axis=3),img.affine)
     print('resampling')
-    fimg = image.resample_to_img(mimg, tspace).get_data()
+    fimg = image.resample_to_img(mimg, tspace).get_fdata()
     # fnm = os.path.join(wdir,'del_%s_img.nii'%lab)
     # mimg.to_filename(fnm)
     
@@ -788,7 +788,7 @@ def make_mean_img(scans, tspace):
     # os.system('fsl5.0-flirt -in %s -ref %s -applyxfm -init %s -out %s'%(fnm,mni,tfm,nfnm))
     # os.remove(fnm)
     # nfnm = nfnm+'.gz'
-    # fimg = ni.load(nfnm).get_data()
+    # fimg = ni.load(nfnm).get_fdata()
     # if del_img:
     #     os.remove(nfnm)
     
@@ -1048,7 +1048,7 @@ def structural_connectivity_analysis(input_img, df, col, ant_cut, post_cut, vdim
                                      mask_thr=0.2, outdir = None, outname='strucx'):
     
     print('initializing')
-    i4d = input_img.get_data()
+    i4d = input_img.get_fdata()
     avg_image = i4d.mean(3)
     mask = np.zeros_like(avg_image)
     mask[avg_image>mask_thr] = 1
@@ -1058,12 +1058,12 @@ def structural_connectivity_analysis(input_img, df, col, ant_cut, post_cut, vdim
     print('creating anterior connectivity map')
     antdf = df[df[col]>=ant_cut][['mni_nlin_x','mni_nlin_y','mni_nlin_z']]
     ant_mtx = get_structural_connectivity(antdf, i4d, i2d, vdim)
-    ant_image = mskr.inverse_transform(ant_mtx).get_data().mean(3)
+    ant_image = mskr.inverse_transform(ant_mtx).get_fdata().mean(3)
     
     print('creating posterior connectivity map')
     postdf = df[df[col]<=post_cut][['mni_nlin_x','mni_nlin_y','mni_nlin_z']]
     post_mtx = get_structural_connectivity(postdf, i4d, i2d, vdim)
-    post_image = mskr.inverse_transform(post_mtx).get_data().mean(3)
+    post_image = mskr.inverse_transform(post_mtx).get_fdata().mean(3)
     
     diff_image = ni.Nifti1Image((ant_image - post_image), input_img.affine)
     ant_image = ni.Nifti1Image(ant_image,input_img.affine)
@@ -1167,7 +1167,7 @@ def cognitive_metaanalysis_pipeline(scans=None, gdf = None, target_col = None,
                 raise IOError('Assuming you passed a list of scan paths, but I couldnt locate the first one...')
             else:
                 print('>>>loading data<<<')
-                allmetas = image.load_img(scans).get_data()
+                allmetas = image.load_img(scans).get_fdata()
         else:
             if type(scans) != np.ndarray:
                 raise IOError('scans must be 4D array or list of paths to neurosynth maps')
